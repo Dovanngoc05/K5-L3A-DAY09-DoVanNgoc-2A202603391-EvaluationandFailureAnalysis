@@ -39,7 +39,7 @@ def scorecard(spec: dict, base: dict, base_spec: dict | None) -> list[tuple[str,
     return out
 
 
-def detect(spec: dict) -> tuple[float, float]:
+def detect(spec: dict, *, explain: bool = False) -> tuple[float, float]:
     """Detection: of the seeded_regression rows that fail pass_rate, the share that at least one of
     your other graders also flags (so you can say *why* it failed). False alarm: share of fixed rows flagged."""
     variants.register()
@@ -50,7 +50,19 @@ def detect(spec: dict) -> tuple[float, float]:
     broken = [r for r in run_eval("seeded_regression", spec)["rows"] if r.get("pass_rate") is False]
     fixed = run_eval("fixed", spec)["rows"]
     det = sum(map(flagged, broken)) / len(broken) if broken else 0.0
-    return det, sum(map(flagged, fixed)) / len(fixed)
+    fa = sum(map(flagged, fixed)) / len(fixed)
+    if explain:
+        missed = [r for r in broken if not flagged(r)]
+        false_alarms = [r for r in fixed if flagged(r)]
+        print(f"unexplained seeded_regression rows: {len(missed)}/{len(broken)}")
+        for row in missed:
+            print(f"  {row['item_id']}@{row['seed']}: " + ", ".join(
+                f"{name}={row.get(name)}" for name in bad_value))
+        print(f"fixed rows flagged: {len(false_alarms)}/{len(fixed)}")
+        for row in false_alarms:
+            print(f"  {row['item_id']}@{row['seed']}: " + ", ".join(
+                f"{name}={row.get(name)}" for name in bad_value))
+    return det, fa
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -65,7 +77,7 @@ def main(argv: list[str] | None = None) -> int:
     spec = load_spec(Path(args.spec))
     variants.register()
     if args.detect:
-        det, fa = detect(spec)
+        det, fa = detect(spec, explain=True)
         ok = det >= 0.80 and fa <= 0.10
         print(f"detection {det:.2%} (target >=80%) · false alarms {fa:.2%} (target <=10%)")
         return 0 if ok else 1
